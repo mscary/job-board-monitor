@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Job Board Monitor</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body x-data="app" @keydown.escape.window="handleEsc()">
+
+<!-- ═══════════════════════════════════════════════════════════ HEADER ══════ -->
+<header>
+  <div class="container">
+    <div class="header-top">
+      <h1>Job Board Monitor</h1>
+      <div class="header-actions">
+        <button class="btn btn-success btn-sm" @click="openAddSource()">+ Add Source</button>
+        <button class="btn btn-ghost btn-sm" @click="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-value" x-text="stats.total"></span>
+        <span class="stat-label">Sources</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value red" x-text="stats.overdue"></span>
+        <span class="stat-label">Overdue</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value yellow" x-text="stats.neverChecked"></span>
+        <span class="stat-label">Never Checked</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value green" x-text="stats.checkedThisWeek"></span>
+        <span class="stat-label">Checked This Week</span>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="controls">
+      <input type="text" class="search-input" placeholder="Search sources..." x-model="searchQuery">
+      <select class="filter" x-model="filterCategory">
+        <option value="">All Categories</option>
+        <template x-for="cat in categories" :key="cat">
+          <option :value="cat" x-text="cat"></option>
+        </template>
+      </select>
+      <select class="filter" x-model="filterTier">
+        <option value="">All Tiers</option>
+        <option value="1">Tier 1 — High Priority</option>
+        <option value="2">Tier 2 — Medium</option>
+        <option value="3">Tier 3 — Low</option>
+      </select>
+      <button class="btn btn-ghost btn-sm"
+        @click="filterCategory=''; filterTier=''; searchQuery=''"
+        x-show="filterCategory || filterTier || searchQuery">
+        Clear filters
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════ MAIN ════════ -->
+<main>
+  <div class="container">
+
+    <!-- ── Needs Attention ─────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">Needs Attention</h2>
+        <span class="section-badge" :class="needsAttention.length > 0 ? 'red' : ''" x-text="needsAttention.length"></span>
+      </div>
+
+      <div x-show="needsAttention.length === 0" class="empty-state">
+        <span class="emoji">✓</span>
+        Nothing overdue — you're caught up.
+      </div>
+
+      <div class="source-grid">
+        <template x-for="source in needsAttention" :key="source.id">
+          <div class="source-card" :class="urgencyClass(source)">
+            <div class="card-top">
+              <span class="source-name" @click="viewHistory(source)" x-text="source.name"></span>
+              <span class="tier-badge" :class="'tier-' + source.tier" x-text="'T' + source.tier"></span>
+            </div>
+            <div class="card-meta">
+              <span class="tag" x-text="source.category"></span>
+              <span class="tag" :class="overdueTagClass(source)" x-show="overdueLabel(source)" x-text="overdueLabel(source)"></span>
+              <span class="meta-date" x-show="source.last_checked">
+                Last: <span x-text="formatDate(source.last_checked)"></span>
+              </span>
+            </div>
+            <div class="card-notes" x-show="source.last_notes" x-text="source.last_notes"></div>
+            <div class="card-actions">
+              <button class="btn btn-primary btn-sm" @click="checkNow(source)">Check Now</button>
+              <button class="btn btn-outline btn-sm" @click="openSnooze(source)">Snooze</button>
+              <button class="btn btn-outline btn-sm" @click="openEditSource(source)">Edit</button>
+              <button class="btn btn-outline btn-sm" @click="viewHistory(source)">History</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ── Never Checked ───────────────────────────────────────────────────── -->
+    <section class="section" x-show="neverChecked.length > 0">
+      <div class="section-header">
+        <h2 class="section-title">Never Checked</h2>
+        <span class="section-badge purple" x-text="neverChecked.length"></span>
+      </div>
+
+      <div class="source-grid">
+        <template x-for="source in neverChecked" :key="source.id">
+          <div class="source-card border-purple">
+            <div class="card-top">
+              <span class="source-name" @click="viewHistory(source)" x-text="source.name"></span>
+              <span class="tier-badge" :class="'tier-' + source.tier" x-text="'T' + source.tier"></span>
+            </div>
+            <div class="card-meta">
+              <span class="tag" x-text="source.category"></span>
+              <span class="tag tag-purple">Never visited</span>
+              <span class="meta-date">Every <span x-text="source.check_frequency_days"></span>d</span>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-primary btn-sm" @click="checkNow(source)">Check Now</button>
+              <button class="btn btn-outline btn-sm" @click="openSnooze(source)">Snooze</button>
+              <button class="btn btn-outline btn-sm" @click="openEditSource(source)">Edit</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- ── Up to Date (collapsible) ───────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-header clickable" @click="showUpToDate = !showUpToDate">
+        <h2 class="section-title">Up to Date</h2>
+        <span class="section-badge" x-text="upToDate.length"></span>
+        <span class="toggle-icon" x-text="showUpToDate ? '▲ collapse' : '▼ expand'"></span>
+      </div>
+
+      <div x-show="showUpToDate" x-transition>
+        <div x-show="upToDate.length === 0" class="empty-state">No sources in this state.</div>
+        <div class="source-grid">
+          <template x-for="source in upToDate" :key="source.id">
+            <div class="source-card border-green">
+              <div class="card-top">
+                <span class="source-name" @click="viewHistory(source)" x-text="source.name"></span>
+                <span class="tier-badge" :class="'tier-' + source.tier" x-text="'T' + source.tier"></span>
+              </div>
+              <div class="card-meta">
+                <span class="tag" x-text="source.category"></span>
+                <span class="meta-date">Last: <span x-text="formatDate(source.last_checked)"></span></span>
+                <span class="meta-date">Due: <span x-text="formatDate(nextDue(source))"></span></span>
+              </div>
+              <div class="card-notes" x-show="source.last_notes" x-text="source.last_notes"></div>
+              <div class="card-actions">
+                <button class="btn btn-primary btn-sm" @click="checkNow(source)">Check Now</button>
+                <button class="btn btn-outline btn-sm" @click="openEditSource(source)">Edit</button>
+                <button class="btn btn-outline btn-sm" @click="viewHistory(source)">History</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Snoozed (collapsible, only shown when any exist) ───────────────── -->
+    <section class="section" x-show="snoozedSources.length > 0">
+      <div class="section-header clickable" @click="showSnoozed = !showSnoozed">
+        <h2 class="section-title">Snoozed</h2>
+        <span class="section-badge yellow" x-text="snoozedSources.length"></span>
+        <span class="toggle-icon" x-text="showSnoozed ? '▲ collapse' : '▼ expand'"></span>
+      </div>
+
+      <div x-show="showSnoozed" x-transition>
+        <div class="source-grid">
+          <template x-for="source in snoozedSources" :key="source.id">
+            <div class="source-card border-gray">
+              <div class="card-top">
+                <span class="source-name" @click="viewHistory(source)" x-text="source.name"></span>
+                <span class="tier-badge" :class="'tier-' + source.tier" x-text="'T' + source.tier"></span>
+              </div>
+              <div class="card-meta">
+                <span class="tag" x-text="source.category"></span>
+                <span class="tag tag-gray">Snoozed until <span x-text="formatDate(source.snooze_until)"></span></span>
+              </div>
+              <div class="card-actions">
+                <button class="btn btn-primary btn-sm" @click="checkNow(source)">Check Now</button>
+                <button class="btn btn-outline btn-sm" @click="openEditSource(source)">Edit</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+
+<!-- ══════════════════════════════════════════════════ MODAL: CHECK-IN ══════ -->
+<div class="modal-overlay" x-show="checkinModal" x-transition @click.self="checkinModal = false">
+  <div class="modal" @click.stop>
+    <div class="modal-header">
+      <h2>Log Check-in</h2>
+      <button class="modal-close" @click="checkinModal = false">&times;</button>
+    </div>
+
+    <p class="source-info-line" x-show="selectedSource">
+      <strong x-text="selectedSource?.name"></strong><br>
+      <a :href="selectedSource?.url" target="_blank" x-text="selectedSource?.url"></a>
+    </p>
+
+    <div class="form-group">
+      <label>What did you find?</label>
+      <textarea class="form-control" x-model="checkinNotes"
+        placeholder="e.g. Found 2 relevant postings. Nothing new. One interesting role..."
+        rows="4" autofocus></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" @click="checkinModal = false">Cancel</button>
+      <button class="btn btn-primary" @click="saveCheckin()">Save Check-in</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════ MODAL: ADD SOURCE ═══════ -->
+<div class="modal-overlay" x-show="addSourceModal" x-transition @click.self="addSourceModal = false">
+  <div class="modal" @click.stop>
+    <div class="modal-header">
+      <h2>Add Source</h2>
+      <button class="modal-close" @click="addSourceModal = false">&times;</button>
+    </div>
+
+    <div class="form-group">
+      <label>Name *</label>
+      <input class="form-control" x-model="newSource.name" placeholder="e.g. Khan Academy" type="text">
+    </div>
+
+    <div class="form-group">
+      <label>URL *</label>
+      <input class="form-control" x-model="newSource.url" placeholder="https://..." type="url">
+    </div>
+
+    <div class="form-group">
+      <label>Category *</label>
+      <select class="form-control" x-model="newSource.category">
+        <option value="" disabled>Select a category...</option>
+        <template x-for="cat in categories" :key="cat">
+          <option :value="cat" x-text="cat"></option>
+        </template>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Tier</label>
+        <select class="form-control" x-model.number="newSource.tier">
+          <option value="" disabled>Select...</option>
+          <option value="1">1 — High Priority</option>
+          <option value="2">2 — Medium</option>
+          <option value="3">3 — Low</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Check Every (days)</label>
+        <input class="form-control" x-model.number="newSource.check_frequency_days" type="number" min="1" max="365">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" @click="addSourceModal = false">Cancel</button>
+      <button class="btn btn-primary" @click="saveNewSource()"
+        :disabled="!newSource.name.trim() || !newSource.url.trim()">
+        Add Source
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════ MODAL: EDIT SOURCE ═══════ -->
+<div class="modal-overlay" x-show="editSourceModal" x-transition @click.self="editSourceModal = false">
+  <div class="modal" @click.stop x-show="editSource">
+    <div class="modal-header">
+      <h2>Edit Source</h2>
+      <button class="modal-close" @click="editSourceModal = false">&times;</button>
+    </div>
+
+    <div class="form-group">
+      <label>Name</label>
+      <input class="form-control" x-model="editSource.name" type="text">
+    </div>
+
+    <div class="form-group">
+      <label>URL</label>
+      <input class="form-control" x-model="editSource.url" type="url">
+    </div>
+
+    <div class="form-group">
+      <label>Category</label>
+      <select class="form-control" x-model="editSource.category">
+        <template x-for="cat in categories" :key="cat">
+          <option :value="cat" x-text="cat"></option>
+        </template>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Tier</label>
+        <select class="form-control" x-model.number="editSource.tier">
+          <option value="1">1 — High Priority</option>
+          <option value="2">2 — Medium</option>
+          <option value="3">3 — Low</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Check Every (days)</label>
+        <input class="form-control" x-model.number="editSource.check_frequency_days" type="number" min="1" max="365">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>
+        <input type="checkbox" x-model="editSource.active" style="margin-right:6px">
+        Active (uncheck to pause without deleting)
+      </label>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" @click="editSourceModal = false">Cancel</button>
+      <button class="btn btn-primary" @click="saveEditSource()">Save Changes</button>
+    </div>
+
+    <div class="danger-zone">
+      <div class="danger-zone-label">Danger Zone</div>
+      <button class="btn btn-danger btn-sm" @click="deleteSource(editSource)">Delete this source</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════ MODAL: HISTORY ══════════ -->
+<div class="modal-overlay" x-show="historyModal" x-transition @click.self="historyModal = false">
+  <div class="modal modal-lg" @click.stop>
+    <div class="modal-header">
+      <h2>Check-in History</h2>
+      <button class="modal-close" @click="historyModal = false">&times;</button>
+    </div>
+
+    <p class="source-info-line" x-show="selectedSource">
+      <strong x-text="selectedSource?.name"></strong> &nbsp;
+      <a :href="selectedSource?.url" target="_blank">↗ Open</a>
+    </p>
+
+    <div x-show="historyEntries.length === 0" class="history-empty">
+      No check-ins logged yet.
+    </div>
+
+    <ul style="list-style:none;" x-show="historyEntries.length > 0">
+      <template x-for="entry in historyEntries" :key="entry.id">
+        <li class="history-item">
+          <div class="history-date" x-text="formatDate(entry.date_checked)"></div>
+          <div class="history-notes" :class="entry.notes ? '' : 'empty'"
+            x-text="entry.notes || '(no notes)'"></div>
+        </li>
+      </template>
+    </ul>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" @click="historyModal = false">Close</button>
+      <button class="btn btn-primary" @click="historyModal = false; checkNow(selectedSource)">Check Now</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════ MODAL: SNOOZE ═══════════ -->
+<div class="modal-overlay" x-show="snoozeModal" x-transition @click.self="snoozeModal = false">
+  <div class="modal" @click.stop>
+    <div class="modal-header">
+      <h2>Snooze Source</h2>
+      <button class="modal-close" @click="snoozeModal = false">&times;</button>
+    </div>
+
+    <p style="color:var(--muted); font-size:13px; margin-bottom:14px;">
+      Snoozing <strong x-text="selectedSource?.name"></strong> will hide it from
+      "Needs Attention" until the snooze period ends.
+    </p>
+
+    <div class="form-group">
+      <label>Snooze for how many days?</label>
+      <input class="form-control" x-model.number="snoozeDays" type="number" min="1" max="90">
+    </div>
+
+    <div class="snooze-presets">
+      <button class="btn btn-outline btn-xs" @click="snoozeDays = 3">3 days</button>
+      <button class="btn btn-outline btn-xs" @click="snoozeDays = 7">1 week</button>
+      <button class="btn btn-outline btn-xs" @click="snoozeDays = 14">2 weeks</button>
+      <button class="btn btn-outline btn-xs" @click="snoozeDays = 30">1 month</button>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-outline" @click="snoozeModal = false">Cancel</button>
+      <button class="btn btn-primary" @click="saveSnooze()">
+        Snooze for <span x-text="snoozeDays"></span> days
+      </button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

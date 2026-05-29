@@ -1,0 +1,12 @@
+{
+  "name": "job-board-monitor",
+  "version": "1.0.0",
+  "description": "Personal job board & org career page tracker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
