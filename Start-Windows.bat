@@ -30,28 +30,6 @@ if !WIN_MAJOR! LSS 10 (
   exit /b 1
 )
 
-:: ── Refresh PATH so a just-installed Node.js is found without a restart ───────
-:: Node.js installers add themselves to the system PATH, but that change is
-:: not picked up by already-open windows. We force-reload it here.
-for /f "skip=2 tokens=3*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v PATH 2^>nul') do (
-  if not "%%~b"=="" (
-    set "SYS_PATH=%%~a %%~b"
-  ) else (
-    set "SYS_PATH=%%~a"
-  )
-)
-for /f "skip=2 tokens=3*" %%a in ('reg query "HKCU\Environment" /v PATH 2^>nul') do (
-  if not "%%~b"=="" (
-    set "USER_PATH=%%~a %%~b"
-  ) else (
-    set "USER_PATH=%%~a"
-  )
-)
-if defined SYS_PATH set "PATH=!SYS_PATH!"
-if defined USER_PATH set "PATH=!PATH!;!USER_PATH!"
-
-:: Also add the default Node.js install location as a fallback
-set "PATH=!PATH!;%ProgramFiles%\nodejs;%APPDATA%\npm"
 
 :: ── Check Node.js is installed ────────────────────────────────────────────────
 where node >nul 2>&1
